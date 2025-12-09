@@ -1,7 +1,3 @@
-# ====== ETAP 2: WŁASNY CNN NA FER2013 (wersja finalna) ======
-# Wymagania: tensorflow>=2.10, scikit-learn, matplotlib, pandas
-# pip install tensorflow scikit-learn matplotlib pandas
-
 import os
 import numpy as np
 import pandas as pd
@@ -12,20 +8,17 @@ from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras import regularizers
 from datetime import datetime
 
-# --- ŚCIEŻKI ---
 DATASET_ROOT = "FER2013"
 TRAIN_DIR = os.path.join(DATASET_ROOT, "train")
 TEST_DIR  = os.path.join(DATASET_ROOT, "test")
 OUT_DIR   = "outputs_cnn"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# --- PARAMETRY ---
 IMG_SIZE = (48, 48)
 BATCH_SIZE = 64
 SEED = 42
-EPOCHS = 40          # EarlyStopping zatrzyma wcześniej, jeśli trzeba
+EPOCHS = 40
 
-# --- DANE: train/val (walidacja z podziału train) ---
 train_ds = tf.keras.preprocessing.image_dataset_from_directory(
     TRAIN_DIR,
     labels="inferred",
@@ -56,7 +49,6 @@ class_names = train_ds.class_names
 num_classes = len(class_names)
 print("Klasy:", class_names)
 
-# --- DANE: test ---
 test_ds = tf.keras.preprocessing.image_dataset_from_directory(
     TEST_DIR,
     labels="inferred",
@@ -64,15 +56,13 @@ test_ds = tf.keras.preprocessing.image_dataset_from_directory(
     color_mode="grayscale",
     batch_size=BATCH_SIZE,
     image_size=IMG_SIZE,
-    shuffle=False,  # ważne do zapisu CSV 1:1
+    shuffle=False,
 )
 
-# --- PRZYSPIESZENIE + AUGMENTACJA ---
 AUTOTUNE = tf.data.AUTOTUNE
 
 def configure(ds, training=False):
     if training:
-        # dość mocna, ale nadal rozsądna augmentacja
         data_augmentation = tf.keras.Sequential([
             tf.keras.layers.RandomFlip("horizontal"),
             tf.keras.layers.RandomRotation(0.08),
@@ -89,7 +79,6 @@ train_ds = configure(train_ds, training=True)
 val_ds   = configure(val_ds, training=False)
 test_ds  = configure(test_ds, training=False)
 
-# --- LICZENIE CLASS WEIGHTS (na podstawie train_ds) ---
 all_labels = []
 for _, y in train_ds.unbatch():
     all_labels.append(np.argmax(y.numpy()))
@@ -103,7 +92,6 @@ class_weights_arr = compute_class_weight(
 class_weights = dict(enumerate(class_weights_arr))
 print("Class weights:", class_weights)
 
-# --- MODEL: CNN z umiarkowaną regularizacją i małą gęstą końcówką ---
 def build_cnn(input_shape=(48,48,1), classes=7):
     inputs = tf.keras.Input(shape=input_shape)
 
@@ -134,12 +122,10 @@ def build_cnn(input_shape=(48,48,1), classes=7):
         x = tf.keras.layers.SpatialDropout2D(0.20)(x)
         return x
 
-    # 3 bloki konwolucyjne
     x = conv_block(x, 32)
     x = conv_block(x, 64)
     x = conv_block(x, 128)
 
-    # dodatkowa konwolucja 256
     x = tf.keras.layers.Conv2D(
         256,
         3,
@@ -153,7 +139,6 @@ def build_cnn(input_shape=(48,48,1), classes=7):
     x = tf.keras.layers.GlobalAveragePooling2D()(x)
     x = tf.keras.layers.Dropout(0.4)(x)
 
-    # niewielka gęsta głowa – kompromis między mocą a przeuczeniem
     x = tf.keras.layers.Dense(128, activation="relu")(x)
     x = tf.keras.layers.Dropout(0.3)(x)
 
@@ -171,7 +156,6 @@ def build_cnn(input_shape=(48,48,1), classes=7):
 model = build_cnn(input_shape=(IMG_SIZE[0], IMG_SIZE[1], 1), classes=num_classes)
 model.summary()
 
-# --- CALLBACKI ---
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 ckpt_path = os.path.join(OUT_DIR, f"cnn_best_{timestamp}.keras")
 callbacks = [
@@ -186,7 +170,6 @@ callbacks = [
     ),
 ]
 
-# --- TRENING ---
 history = model.fit(
     train_ds,
     validation_data=val_ds,
@@ -195,7 +178,6 @@ history = model.fit(
     class_weight=class_weights,
 )
 
-# --- WYKRESY HISTORII ---
 plt.figure(figsize=(10,4))
 plt.subplot(1,2,1)
 plt.plot(history.history["accuracy"], label="train acc")
@@ -218,7 +200,6 @@ plt.savefig(plot_path, dpi=140)
 plt.close()
 print(f"Zapisano wykres historii: {plot_path}")
 
-# --- EWALUACJA NA TEŚCIE ---
 test_images = []
 test_true_idx = []
 
@@ -235,7 +216,6 @@ pred_idx = probs.argmax(axis=1)
 acc = (pred_idx == test_true_idx).mean() * 100
 print(f"\nAccuracy na teście: {acc:.2f}%")
 
-# --- RAPORT + MACIERZ POMYŁEK ---
 cm = confusion_matrix(test_true_idx, pred_idx)
 report = classification_report(
     test_true_idx, pred_idx, target_names=class_names, digits=4
@@ -249,7 +229,6 @@ with open(os.path.join(OUT_DIR, f"classification_report_{timestamp}.txt"),
     f.write(report)
     f.write(f"\nAccuracy: {acc:.2f}%\n")
 
-# --- ZAPIS CSV Z WYNIKAMI POJEDYNCZYCH OBRAZÓW ---
 test_filepaths = []
 for root, _, files in os.walk(TEST_DIR):
     files = [f for f in files if f.lower().endswith((".jpg", ".png"))]
@@ -279,7 +258,6 @@ csv_path = os.path.join(OUT_DIR, f"cnn_results_{timestamp}.csv")
 pd.DataFrame(rows).to_csv(csv_path, index=False, encoding="utf-8-sig")
 print(f"Zapisano wyniki testu do CSV: {csv_path}")
 
-# --- PRZYKŁADOWE OBRAZY (po 1 z każdej emocji) ---
 fig = plt.figure(figsize=(14, 8))
 shown = 0
 picked_for = set()
@@ -307,4 +285,4 @@ plt.savefig(ex_path, dpi=140)
 plt.close()
 print(f"Zapisano przykładowe obrazy: {ex_path}")
 
-print("\n✅ Etap 2 (CNN – wersja finalna) zakończony.")
+print("\nEtap 2 (CNN) zakończony.")

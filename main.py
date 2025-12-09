@@ -6,16 +6,11 @@ import cv2
 from deepface import DeepFace
 from tqdm import tqdm
 
-# ==========================
-# KONFIGURACJA
-# ==========================
+# Parametry
 DATASET_PATH = "FER2013/test"
 OUTPUT_CSV = "deepface_results.csv"
-SAMPLES_PER_EMOTION = 2000  # liczba losowych obrazów z każdej emocji
+SAMPLES_PER_EMOTION = 2000
 
-# ==========================
-# PRZYGOTOWANIE LISTY OBRAZÓW
-# ==========================
 emotions = [d for d in os.listdir(DATASET_PATH) if os.path.isdir(os.path.join(DATASET_PATH, d))]
 all_samples = []
 
@@ -29,9 +24,6 @@ for emotion in emotions:
 
 print(f"Znaleziono {len(all_samples)} obrazów do analizy ({len(emotions)} emocji po maks. {SAMPLES_PER_EMOTION} zdjęć).")
 
-# ==========================
-# ANALIZA OBRAZÓW – DeepFace
-# ==========================
 results = []
 
 for img_path, true_emotion in tqdm(all_samples, desc="Analiza emocji"):
@@ -41,7 +33,6 @@ for img_path, true_emotion in tqdm(all_samples, desc="Analiza emocji"):
         dominant = data['dominant_emotion']
         probs = data['emotion']
 
-        # Zamiana wartości na procenty
         probs_percent = {k: round(v, 2) for k, v in probs.items()}
 
         correct = "TAK" if dominant == true_emotion else "NIE"
@@ -54,7 +45,6 @@ for img_path, true_emotion in tqdm(all_samples, desc="Analiza emocji"):
             "zgodność": correct,
             "prawd_emocji_prawidłowej_%": correct_emotion_percent
         }
-        # dodaj prawdopodobieństwa wszystkich emocji
         for emo, val in probs_percent.items():
             result[f"{emo}_%"] = val
 
@@ -63,23 +53,16 @@ for img_path, true_emotion in tqdm(all_samples, desc="Analiza emocji"):
     except Exception as e:
         print(f"Błąd dla {img_path}: {e}")
 
-# ==========================
-# ZAPIS DO CSV
-# ==========================
 df = pd.DataFrame(results)
 accuracy = round((df["zgodność"] == "TAK").mean() * 100, 2)
 df.to_csv(OUTPUT_CSV, index=False, encoding='utf-8-sig')
 
-# dopisz podsumowanie na końcu pliku
 with open(OUTPUT_CSV, "a", encoding="utf-8-sig") as f:
     f.write(f"\nŚrednia zgodność: {accuracy}%\n")
 
-print(f"\n✅ Analiza zakończona. Wyniki zapisano w: {OUTPUT_CSV}")
+print(f"\nAnaliza zakończona. Wyniki zapisano w: {OUTPUT_CSV}")
 print(f"Średnia zgodność (accuracy): {accuracy}%")
 
-# ==========================
-# WIZUALIZACJA – przykładowe obrazy
-# ==========================
 print("\nPrzykładowe wyniki:")
 
 examples = []

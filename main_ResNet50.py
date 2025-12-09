@@ -1,7 +1,3 @@
-# ====== ETAP 3: RESNET50 TRANSFER LEARNING NA FER2013 (fine-tuning łagodniejszy + fotometria) ======
-# Wymagania: tensorflow>=2.10, scikit-learn, matplotlib, pandas
-# pip install tensorflow scikit-learn matplotlib pandas
-
 import os
 import numpy as np
 import pandas as pd
@@ -12,26 +8,23 @@ from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras import regularizers
 from datetime import datetime
 
-# --- ŚCIEŻKI ---
 DATASET_ROOT = "FER2013"
 TRAIN_DIR = os.path.join(DATASET_ROOT, "train")
 TEST_DIR  = os.path.join(DATASET_ROOT, "test")
 OUT_DIR   = "outputs_resnet50"
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# --- PARAMETRY ---
-IMG_SIZE_SRC = (48, 48)       # wejście z dysku (grayscale)
-IMG_SIZE_NET = (224, 224)     # wejście do ResNet50 (RGB)
+IMG_SIZE_SRC = (48, 48)
+IMG_SIZE_NET = (224, 224)
 BATCH_SIZE = 32
 SEED = 42
 
-EPOCHS_FROZEN = 8             # etap 1: zamrożona baza
-EPOCHS_FINE   = 15            # etap 2: fine-tuning (łagodniejszy)
+EPOCHS_FROZEN = 8
+EPOCHS_FINE   = 15
 
 LR_FROZEN = 1e-3
-LR_FINE   = 1e-5              # mniejszy LR przy fine-tuningu
+LR_FINE   = 1e-5
 
-# --- DANE: train/val (walidacja z podziału train) ---
 train_raw = tf.keras.preprocessing.image_dataset_from_directory(
     TRAIN_DIR,
     labels="inferred",
@@ -69,10 +62,9 @@ test_raw = tf.keras.preprocessing.image_dataset_from_directory(
     color_mode="grayscale",
     batch_size=BATCH_SIZE,
     image_size=IMG_SIZE_SRC,
-    shuffle=False,  # ważne do zgodności CSV
+    shuffle=False,
 )
 
-# --- LICZENIE CLASS WEIGHTS (na podstawie train_raw) ---
 all_labels = []
 for _, y in train_raw.unbatch():
     all_labels.append(np.argmax(y.numpy()))
@@ -86,7 +78,6 @@ class_weights_arr = compute_class_weight(
 class_weights = dict(enumerate(class_weights_arr))
 print("Class weights:", class_weights)
 
-# --- AUGMENTACJA + KONWERSJA do 224x224x3 ---
 AUTOTUNE = tf.data.AUTOTUNE
 
 augment = tf.keras.Sequential([
@@ -94,16 +85,14 @@ augment = tf.keras.Sequential([
     tf.keras.layers.RandomRotation(0.08),
     tf.keras.layers.RandomZoom(0.10),
     tf.keras.layers.RandomTranslation(0.08, 0.08),
-    tf.keras.layers.RandomContrast(0.10),  # fotometria: kontrast
+    tf.keras.layers.RandomContrast(0.10),
 ], name="augmentation")
 
 def to_resnet(x, y, training=False):
-    # x: [B,48,48,1] -> RGB [B,48,48,3] -> resize 224 -> preprocess_input
     x = tf.image.grayscale_to_rgb(x)
     x = tf.image.resize(x, IMG_SIZE_NET, method="bilinear")
     if training:
         x = augment(x, training=True)
-    # ResNet50 preprocess (RGB -> BGR, centrowanie wg ImageNet)
     x = tf.keras.applications.resnet50.preprocess_input(x)
     return x, y
 
@@ -118,19 +107,17 @@ train_ds = train_ds.cache().prefetch(AUTOTUNE)
 val_ds   = val_ds.cache().prefetch(AUTOTUNE)
 test_ds  = test_ds.cache().prefetch(AUTOTUNE)
 
-# --- MODEL: ResNet50 + wzmocniona głowica ---
 base = tf.keras.applications.ResNet50(
     include_top=False,
     weights="imagenet",
     input_shape=(IMG_SIZE_NET[0], IMG_SIZE_NET[1], 3),
 )
-base.trainable = False  # etap 1: zamrożona baza
+base.trainable = False
 
 inputs = tf.keras.Input(shape=(IMG_SIZE_NET[0], IMG_SIZE_NET[1], 3))
-x = base(inputs, training=False)  # BN w trybie inference przy zamrożeniu
+x = base(inputs, training=False)
 x = tf.keras.layers.GlobalAveragePooling2D()(x)
 
-# głowica: mała sieć gęsta z regularizacją
 x = tf.keras.layers.Dropout(0.4)(x)
 x = tf.keras.layers.Dense(
     256,
@@ -150,7 +137,6 @@ model.compile(
     metrics=["accuracy"],
 )
 
-# --- CALLBACKI ---
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 ckpt_path = os.path.join(OUT_DIR, f"resnet50_best_{timestamp}.keras")
 
@@ -167,7 +153,6 @@ callbacks_frozen = [
     ),
 ]
 
-# --- TRENING ETAP 1 (baza zamrożona) ---
 hist1 = model.fit(
     train_ds,
     validation_data=val_ds,
@@ -176,15 +161,12 @@ hist1 = model.fit(
     class_weight=class_weights,
 )
 
-# --- FINE-TUNING: odmrażamy tylko ostatni blok ResNet50 (conv5) ---
 base.trainable = True
 set_trainable = False
 for layer in base.layers:
-    # zaczynamy dopiero od conv5_block1_out (łagodniejszy fine-tuning)
     if layer.name == "conv5_block1_out":
         set_trainable = True
     if isinstance(layer, tf.keras.layers.BatchNormalization):
-        # BN zostaje zamrożony dla stabilizacji
         layer.trainable = False
     else:
         layer.trainable = set_trainable
@@ -216,7 +198,6 @@ hist2 = model.fit(
     class_weight=class_weights,
 )
 
-# --- WYKRESY HISTORII ---
 def plot_and_save(histories, out_png):
     acc, val_acc, loss, val_loss = [], [], [], []
     for h in histories:
@@ -250,9 +231,8 @@ plot_path = os.path.join(OUT_DIR, f"history_{timestamp}.png")
 plot_and_save([hist1, hist2], plot_path)
 print(f"Zapisano wykres historii: {plot_path}")
 
-# --- EWALUACJA NA TEŚCIE ---
 true_idx_list = []
-for _, yb in test_raw:  # test_raw: kolejność 1:1 z plikami
+for _, yb in test_raw:
     true_idx_list.append(np.argmax(yb.numpy(), axis=1))
 true_idx = np.concatenate(true_idx_list, axis=0)
 
@@ -276,7 +256,6 @@ with open(os.path.join(OUT_DIR, f"classification_report_{timestamp}.txt"),
     f.write(report)
     f.write(f"\nAccuracy: {acc:.2f}%\n")
 
-# --- LISTA ŚCIEŻEK TESTOWYCH W TEJ SAMEJ KOLEJNOŚCI CO DATASET ---
 test_filepaths = []
 for cls in test_raw.class_names:
     folder = os.path.join(TEST_DIR, cls)
@@ -286,7 +265,6 @@ for cls in test_raw.class_names:
     for f in files:
         test_filepaths.append(os.path.join(folder, f))
 
-# --- ZAPIS CSV Z WYNIKAMI ---
 idx2name = {i: n for i, n in enumerate(class_names)}
 rows = []
 for i, fp in enumerate(test_filepaths):
@@ -308,7 +286,6 @@ csv_path = os.path.join(OUT_DIR, f"resnet50_results_{timestamp}.csv")
 pd.DataFrame(rows).to_csv(csv_path, index=False, encoding="utf-8-sig")
 print(f"Zapisano wyniki testu do CSV: {csv_path}")
 
-# --- PRZYKŁADOWE OBRAZY (po 1 z każdej emocji) ---
 fig = plt.figure(figsize=(14, 8))
 shown, picked = 0, set()
 for i, fp in enumerate(test_filepaths):
@@ -338,4 +315,4 @@ plt.savefig(ex_path, dpi=140)
 plt.close()
 print(f"Zapisano przykładowe obrazy: {ex_path}")
 
-print("\n✅ Etap 3 (ResNet50 – fine-tuning łagodniejszy + fotometria) zakończony.")
+print("\nEtap 3 (ResNet50) zakończony.")
