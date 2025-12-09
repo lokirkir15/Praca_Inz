@@ -1,0 +1,25 @@
+# środowisko Pythona
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# dane i wyniki
+FER2013/
+outputs_cnn/
+Pomocnicze/
+outputs_resnet50/
+*.zip
+*.h5
+*.pth
+*.pt
+*.model
+*.log
+
+# system
+.DS_Store
+Thumbs.db
